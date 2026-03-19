@@ -29,17 +29,19 @@ def transcribe_url_with_assemblyai(youtube_url: str, api_key: str,
         audio_path = os.path.join(tmpdir, "audio.mp3")
 
         log("Downloading audio from YouTube...")
+
+        # Use YouTube cookies if available (required for server IPs to bypass bot detection)
+        cookies_path = "/etc/secrets/youtube_cookies.txt"
         ydl_opts = {
             "format": "bestaudio[ext=m4a]/bestaudio/best",
             "outtmpl": audio_path,
             "quiet": True,
             "no_warnings": True,
-            # Use iOS client — avoids bot detection on server IPs
-            "extractor_args": {"youtube": {"player_client": ["ios"]}},
+            "cookiefile": cookies_path if os.path.exists(cookies_path) else None,
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "64",  # low bitrate — speech only
+                "preferredquality": "64",
             }],
         }
 
