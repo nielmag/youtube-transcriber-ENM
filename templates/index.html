@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Transcriber</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Calibri, 'Segoe UI', sans-serif;
+      background: #f0f4f8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.10);
+      padding: 40px 44px;
+      width: 100%;
+      max-width: 560px;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      font-size: 0.95rem;
+      color: #64748b;
+      margin-bottom: 28px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+
+    input[type="url"] {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-family: inherit;
+      color: #1e293b;
+      transition: border-color .2s;
+      outline: none;
+    }
+
+    input[type="url"]:focus { border-color: #2563eb; }
+
+    .btn {
+      display: block;
+      width: 100%;
+      margin-top: 16px;
+      padding: 12px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .btn:hover:not(:disabled) { background: #1d4ed8; }
+    .btn:disabled { background: #93c5fd; cursor: not-allowed; }
+
+    .btn-download {
+      background: #16a34a;
+      text-decoration: none;
+      text-align: center;
+    }
+    .btn-download:hover { background: #15803d; }
+
+    /* Progress */
+    #progress-section { margin-top: 28px; display: none; }
+
+    .step-label {
+      font-size: 0.88rem;
+      color: #6b7280;
+      margin-bottom: 8px;
+    }
+
+    .bar-track {
+      background: #e5e7eb;
+      border-radius: 999px;
+      height: 8px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: #2563eb;
+      border-radius: 999px;
+      transition: width .4s ease;
+      width: 0%;
+    }
+
+    .status-msg {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: #374151;
+      min-height: 1.3em;
+    }
+
+    .error-msg {
+      margin-top: 16px;
+      padding: 12px 14px;
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      color: #b91c1c;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .video-title {
+      margin-top: 14px;
+      font-size: 0.9rem;
+      color: #1e293b;
+      font-weight: 600;
+    }
+
+    .steps {
+      margin-top: 20px;
+      display: flex;
+      gap: 6px;
+      flex-direction: column;
+    }
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.875rem;
+      color: #9ca3af;
+    }
+
+    .step.active { color: #2563eb; font-weight: 600; }
+    .step.done   { color: #16a34a; }
+
+    .step-icon { font-size: 1rem; width: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>YouTube Transcriber</h1>
+    <p class="subtitle">Paste a YouTube URL and get a clean Word document with transcript and executive summary.</p>
+
+    <label for="url-input">YouTube URL</label>
+    <input type="url" id="url-input" placeholder="https://youtube.com/watch?v=..." autocomplete="off" />
+
+    <button class="btn" id="submit-btn" onclick="startJob()">Generate Transcript</button>
+
+    <div id="progress-section">
+      <div class="video-title" id="video-title"></div>
+
+      <div class="steps" id="steps-list">
+        <div class="step" id="step-fetch"><span class="step-icon">⬇️</span> Fetching YouTube captions</div>
+        <div class="step" id="step-clean"><span class="step-icon">✏️</span> Cleaning &amp; organizing with Claude</div>
+        <div class="step" id="step-summary"><span class="step-icon">📋</span> Creating executive summary</div>
+        <div class="step" id="step-export"><span class="step-icon">📄</span> Generating Word document</div>
+      </div>
+
+      <div class="bar-track" style="margin-top:16px">
+        <div class="bar-fill" id="bar-fill"></div>
+      </div>
+      <div class="status-msg" id="status-msg"></div>
+      <div class="error-msg" id="error-msg"></div>
+
+      <a class="btn btn-download" id="download-btn" href="#" style="display:none">
+        ⬇️ Download Word Document
+      </a>
+    </div>
+  </div>
+
+  <script>
+    let pollInterval = null;
+
+    const STEP_MAP = {
+      fetching:    'step-fetch',
+      cleaning:    'step-clean',
+      summarizing: 'step-summary',
+      exporting:   'step-export',
+      done:        'step-export',
+    };
+
+    function startJob() {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) { alert('Please enter a YouTube URL.'); return; }
+
+      document.getElementById('submit-btn').disabled = true;
+      document.getElementById('progress-section').style.display = 'block';
+      document.getElementById('download-btn').style.display = 'none';
+      document.getElementById('error-msg').style.display = 'none';
+      document.getElementById('video-title').textContent = '';
+      document.querySelectorAll('.step').forEach(s => s.className = 'step');
+      setBar(5); setMsg('Starting...');
+
+      fetch('/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { showError(data.error); return; }
+        pollInterval = setInterval(() => poll(data.job_id), 1500);
+      })
+      .catch(err => showError('Network error: ' + err));
+    }
+
+    function poll(jobId) {
+      fetch('/status/' + jobId)
+        .then(r => r.json())
+        .then(job => {
+          if (job.title) document.getElementById('video-title').textContent = job.title;
+
+          setBar(job.progress || 0);
+          setMsg(job.message || '');
+
+          // Highlight current step
+          document.querySelectorAll('.step').forEach(s => s.className = 'step');
+          const activeId = STEP_MAP[job.status];
+          if (activeId) {
+            // Mark all previous steps done
+            const order = ['step-fetch','step-clean','step-summary','step-export'];
+            const idx = order.indexOf(activeId);
+            order.forEach((id, i) => {
+              const el = document.getElementById(id);
+              if (i < idx) el.className = 'step done';
+              else if (i === idx) el.className = 'step active';
+            });
+          }
+
+          if (job.status === 'done') {
+            clearInterval(pollInterval);
+            document.querySelectorAll('.step').forEach(s => s.className = 'step done');
+            const dl = document.getElementById('download-btn');
+            dl.href = '/download/' + jobId;
+            dl.style.display = 'block';
+            document.getElementById('submit-btn').disabled = false;
+          }
+
+          if (job.status === 'error') {
+            clearInterval(pollInterval);
+            showError(job.error || 'Something went wrong.');
+          }
+        })
+        .catch(() => {});
+    }
+
+    function setBar(pct) {
+      document.getElementById('bar-fill').style.width = pct + '%';
+    }
+    function setMsg(msg) {
+      document.getElementById('status-msg').textContent = msg;
+    }
+    function showError(msg) {
+      clearInterval(pollInterval);
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.style.display = 'block';
+      document.getElementById('submit-btn').disabled = false;
+    }
+
+    // Allow pressing Enter in the URL field
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('url-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') startJob();
+      });
+    });
+  </script>
+</body>
+</html>
