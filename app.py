@@ -62,15 +62,15 @@ def run_pipeline(job_id: str, url: str):
                             error="Transcription failed. The video may be private or unavailable.")
                 return
 
-            # Get title separately since AssemblyAI doesn't know it
+            # Get title via YouTube oEmbed API (no auth needed)
             from transcribe import extract_video_id
-            import yt_dlp
             video_id = extract_video_id(url) or url
             title = video_id
             try:
-                with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    title = info.get("title", video_id) if info else video_id
+                oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+                r = requests.get(oembed_url, timeout=10)
+                if r.ok:
+                    title = r.json().get("title", video_id)
             except Exception:
                 pass
 

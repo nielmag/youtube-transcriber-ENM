@@ -34,6 +34,8 @@ def transcribe_url_with_assemblyai(youtube_url: str, api_key: str,
             "outtmpl": audio_path,
             "quiet": True,
             "no_warnings": True,
+            # Use iOS client — avoids bot detection on server IPs
+            "extractor_args": {"youtube": {"player_client": ["ios"]}},
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
