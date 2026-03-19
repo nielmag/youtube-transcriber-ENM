@@ -24,9 +24,11 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 
 logger.info(f"ANTHROPIC_API_KEY loaded: {'YES' if ANTHROPIC_API_KEY else 'NO'}")
+logger.info(f"ASSEMBLYAI_API_KEY loaded: {'YES' if ASSEMBLYAI_API_KEY else 'NO'}")
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -40,9 +42,39 @@ def run_pipeline(job_id: str, url: str):
         result = fetch_captions(url)
 
         if result is None:
-            jobs.update(job_id, status="error",
-                        error="No captions found for this video. It may be a live stream, private, or captions may be disabled.")
-            return
+            # No captions — fall back to AssemblyAI
+            if not ASSEMBLYAI_API_KEY:
+                jobs.update(job_id, status="error",
+                            error="No captions found and ASSEMBLYAI_API_KEY is not configured.")
+                return
+
+            jobs.update(job_id, status="fetching", progress=20,
+                        message="No captions found — transcribing audio with AssemblyAI...")
+
+            from assemblyai_transcribe import transcribe_url_with_assemblyai
+
+            def aai_status(msg):
+                jobs.update(job_id, message=msg)
+
+            aai_result = transcribe_url_with_assemblyai(url, ASSEMBLYAI_API_KEY, aai_status)
+            if not aai_result:
+                jobs.update(job_id, status="error",
+                            error="Transcription failed. The video may be private or unavailable.")
+                return
+
+            # Get title separately since AssemblyAI doesn't know it
+            from transcribe import extract_video_id
+            import yt_dlp
+            video_id = extract_video_id(url) or url
+            title = video_id
+            try:
+                with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    title = info.get("title", video_id) if info else video_id
+            except Exception:
+                pass
+
+            result = {"title": title, "video_id": video_id, "segments": aai_result["segments"]}
 
         jobs.update(job_id, title=result["title"])
 
