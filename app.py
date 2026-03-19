@@ -5,6 +5,7 @@ Paste a YouTube URL → fetches captions → Claude cleans & organizes →
 download a Word document with exec summary + full transcript.
 """
 import io
+import logging
 import os
 import threading
 
@@ -16,11 +17,16 @@ from claude_process import clean_transcript, create_executive_summary
 from transcribe import fetch_captions
 from word_export import export_to_word
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+
+logger.info(f"ANTHROPIC_API_KEY loaded: {'YES' if ANTHROPIC_API_KEY else 'NO'}")
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -61,6 +67,14 @@ def run_pipeline(job_id: str, url: str):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "api_key_configured": bool(ANTHROPIC_API_KEY),
+    })
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -68,16 +82,20 @@ def index():
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
-    data = request.get_json()
-    url = (data or {}).get("url", "").strip()
-    if not url:
-        return jsonify({"error": "URL is required"}), 400
-    if not ANTHROPIC_API_KEY:
-        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
+    try:
+        data = request.get_json()
+        url = (data or {}).get("url", "").strip()
+        if not url:
+            return jsonify({"error": "URL is required"}), 400
+        if not ANTHROPIC_API_KEY:
+            return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
 
-    job_id = jobs.create(url)
-    threading.Thread(target=run_pipeline, args=(job_id, url), daemon=True).start()
-    return jsonify({"job_id": job_id})
+        job_id = jobs.create(url)
+        threading.Thread(target=run_pipeline, args=(job_id, url), daemon=True).start()
+        return jsonify({"job_id": job_id})
+    except Exception as e:
+        logger.exception("Error in /transcribe route")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/status/<job_id>")
