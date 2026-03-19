@@ -41,14 +41,10 @@ def transcribe_url_with_assemblyai(youtube_url: str, api_key: str,
         ydl_opts = {
             "format": "bestaudio[ext=m4a]/bestaudio/best",
             "outtmpl": audio_path,
-            "quiet": True,
-            "no_warnings": True,
+            "quiet": False,  # show errors in logs
+            "no_warnings": False,
             "cookiefile": cookies_path,
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "64",
-            }],
+            # No ffmpeg postprocessor — upload m4a directly to AssemblyAI
         }
 
         # yt-dlp may append .mp3 extension
@@ -58,9 +54,11 @@ def transcribe_url_with_assemblyai(youtube_url: str, api_key: str,
 
         # Find the downloaded file
         for fname in os.listdir(tmpdir):
-            if fname.endswith(".mp3") or fname.endswith(".m4a"):
-                actual_path = os.path.join(tmpdir, fname)
-                break
+            if fname != "youtube_cookies.txt" and not fname.startswith("."):
+                candidate = os.path.join(tmpdir, fname)
+                if os.path.isfile(candidate):
+                    actual_path = candidate
+                    break
 
         if not os.path.exists(actual_path):
             log("Audio download failed.")
