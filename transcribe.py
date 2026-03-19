@@ -19,11 +19,7 @@ def fetch_captions(url: str) -> dict | None:
     Fetches captions from YouTube for the given URL.
     Returns dict with 'title', 'video_id', 'segments', or None if unavailable.
     """
-    from youtube_transcript_api import (
-        YouTubeTranscriptApi,
-        NoTranscriptFound,
-        TranscriptsDisabled,
-    )
+    from youtube_transcript_api import YouTubeTranscriptApi
     import yt_dlp
 
     video_id = extract_video_id(url)
@@ -41,28 +37,19 @@ def fetch_captions(url: str) -> dict | None:
     except Exception:
         pass  # title fallback to video_id
 
-    # Fetch captions
+    # Fetch captions — try English first, then any language
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-
-        # Prefer manual English captions, fall back to auto-generated
         try:
-            transcript = transcript_list.find_manually_created_transcript(
-                ["en", "en-US", "en-GB"]
+            entries = YouTubeTranscriptApi.get_transcript(
+                video_id, languages=["en", "en-US", "en-GB"]
             )
         except Exception:
-            try:
-                transcript = transcript_list.find_generated_transcript(
-                    ["en", "en-US", "en-GB"]
-                )
-            except Exception:
-                # Try any language and translate
-                available = list(transcript_list)
-                if not available:
-                    return None
-                transcript = available[0].translate("en")
-
-        entries = transcript.fetch()
+            # Fall back to any available language
+            transcript_list = YouTubeTranscriptApi.list(video_id)
+            available = list(transcript_list)
+            if not available:
+                return None
+            entries = available[0].fetch()
 
         segments = []
         for entry in entries:
@@ -78,5 +65,5 @@ def fetch_captions(url: str) -> dict | None:
 
         return {"title": title, "video_id": video_id, "segments": segments}
 
-    except (NoTranscriptFound, TranscriptsDisabled):
+    except Exception:
         return None
